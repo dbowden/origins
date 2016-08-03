@@ -1,8 +1,8 @@
 ---
 title: "Rebel Origins"
 output:
-  html_document: default
   html_notebook: default
+  html_document: default
   pdf_document: default
 ---
 
@@ -13,6 +13,7 @@ I have collected data on the social origins of all rebel groups, 1946-2014. In c
 ```{r data cleaning}
 # Load and clean data
 library(readr)
+library(tidyr)
 
 groups <- read_csv("rebel_origin.csv")
 groups <- groups[c(1,35:43)]
@@ -23,12 +24,13 @@ groups2 <- groups2[,1:34]
 groups <- merge(groups2, groups, by = "actorid", all=T)
 rm(groups2)
 
+#remove cases that aren't single groups, cases w/ missing origin
 groups <- subset(groups, is.na(delete)==T)
 groups <- subset(groups, is.na(origin)==F)
 
-#split multiple origins
-library(tidyr)
+groups <- subset(groups, select=-delete)
 
+#split multiple origins
 groups <- separate(groups, "origin",  c("origin","origin2"), sep="; ")
 
 # Condense categories
@@ -42,6 +44,9 @@ groups$origin[groups$origin=="political organization"] <- "political party"
 groups$origin[groups$origin=="transnational militant organization"] <- "transnational organization"
 groups$origin[groups$origin=="transnational political organization"] <- "transnational organization"
 groups$origin[groups$origin=="occupying military"] <- "military faction"
+
+#separate ideology
+groups <- separate(groups, "ideology", c("aim1", "aim2", "aim3"), sep="; ")
 
 ```
 

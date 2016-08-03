@@ -1,0 +1,71 @@
+---
+title: "Causes of Splintering"
+output: html_notebook
+---
+
+# Data Cleaning and Merging
+
+In this analysis I'll be exploring the predictors of rebel group fragmentation. The first step is to import the UCDP actor data with my added variables, and clean it.
+
+```{r data cleaning}
+# Load and clean data
+library(readr)
+library(tidyr)
+
+groups <- read_csv("rebel_origin.csv")
+groups <- groups[c(1,35:43)]
+
+#add in untouched version with correct encoding
+groups2 <- read_csv("rebel_origin2.csv")
+groups2 <- groups2[,1:34]
+groups <- merge(groups2, groups, by = "actorid", all=T)
+rm(groups2)
+
+#remove cases that aren't single groups, cases w/ missing origin
+groups <- subset(groups, is.na(delete)==T)
+groups <- subset(groups, is.na(origin)==F)
+
+groups <- subset(groups, select=-delete)
+
+#split multiple origins
+groups <- separate(groups, "origin",  c("origin","origin2"), sep="; ")
+
+# Condense categories
+groups$origin[groups$origin=="alliance - political parties"] <- "political party"
+groups$origin[groups$origin=="criminal organization"] <- "economic organization"
+groups$origin[groups$origin=="mercenaries"] <- "militia"
+groups$origin[groups$origin=="protests"] <- "grassroots"
+groups$origin[groups$origin=="anti-colonial"] <- "secessionist organization"
+groups$origin[groups$origin=="underground resistance"] <- "political party"
+groups$origin[groups$origin=="political organization"] <- "political party"
+groups$origin[groups$origin=="transnational militant organization"] <- "transnational organization"
+groups$origin[groups$origin=="transnational political organization"] <- "transnational organization"
+groups$origin[groups$origin=="occupying military"] <- "military faction"
+
+#separate ideology
+groups <- separate(groups, "ideology", c("aim1", "aim2", "aim3"), sep="; ")
+
+#write_csv(groups, "rebel_origins_clean.csv")
+```
+
+Then let's code the DV of whether a group splinters
+
+```{r dv}
+
+```
+
+Next let's grab a few covariates based on the conflict data. The number of other groups present with it, the max and average intensity, the duration of time it is active.
+
+```{r conflict}
+
+```
+
+
+Then I'll add the Gleditsch et al. data to get a bunch of covariates for most of my cases.
+
+```{r gleditsch}
+gled <- read_delim("gled.asc", delim="\t")
+
+
+```
+
