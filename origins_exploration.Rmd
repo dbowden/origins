@@ -1,0 +1,335 @@
+---
+title: "Rebel Origins"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+# Data Overview
+
+I have collected data on the social origins of all rebel groups, 1946-2014. In cases where information on the group was limited, I code the origins of the group leader(s). 
+
+```{r data cleaning}
+# Load and clean data
+library(readr)
+
+groups <- read_csv("rebel_origin.csv")
+groups <- groups[c(1,35:43)]
+
+#add in untouched version with correct encoding
+groups2 <- read_csv("rebel_origin2.csv")
+groups2 <- groups2[,1:34]
+groups <- merge(groups2, groups, by = "actorid", all=T)
+rm(groups2)
+
+groups <- subset(groups, is.na(delete)==T)
+groups <- subset(groups, is.na(origin)==F)
+
+#split multiple origins
+library(tidyr)
+
+groups <- separate(groups, "origin",  c("origin","origin2"), sep="; ")
+
+# Condense categories
+groups$origin[groups$origin=="alliance - political parties"] <- "political party"
+groups$origin[groups$origin=="criminal organization"] <- "economic organization"
+groups$origin[groups$origin=="mercenaries"] <- "militia"
+groups$origin[groups$origin=="protests"] <- "grassroots"
+groups$origin[groups$origin=="anti-colonial"] <- "secessionist organization"
+groups$origin[groups$origin=="underground resistance"] <- "political party"
+groups$origin[groups$origin=="political organization"] <- "political party"
+groups$origin[groups$origin=="transnational militant organization"] <- "transnational organization"
+groups$origin[groups$origin=="transnational political organization"] <- "transnational organization"
+groups$origin[groups$origin=="occupying military"] <- "military faction"
+
+```
+
+A quick look at the breakdown:
+
+```{r hist}
+library(ggplot2)
+library(dplyr)
+
+counts <- groups %>% 
+  group_by(origin) %>% 
+  summarize(count=length(actorid))
+
+ggplot(counts, aes(x=reorder(origin, -count), y=count)) + geom_bar(stat="identity") + theme_bw() + theme(axis.text.x = element_text(angle=45, hjust=1, vjust=1)) + ylab("Count") + xlab("Origin") + ggtitle("Rebel Group Origins, 1946-2014")
+
+rm(counts)
+```
+
+We see that the most common category of origin is splinter, meaning that most rebel groups are made up of people who were previously part of a different rebel group. Alliances are another major category, further supporting the pattern that many rebel groups are not really new. At the same time, political parties and religious organizations account for a large number of rebel groups.
+
+An interesting category is "military faction", the third-largest source of rebellion. Many of these cases are coups, but not all. Here is the same plot with coups removed:
+
+```{r hist-no coup}
+non <- subset(groups, ideology!="Coup") %>% 
+  group_by(origin) %>% 
+  summarize(count=length(actorid))
+
+ggplot(non, aes(x=reorder(origin, -count), y=count)) + geom_bar(stat="identity") + theme_bw() + theme(axis.text.x = element_text(angle=45, hjust=1, vjust=1)) + ylab("Count") + xlab("Origin") + ggtitle("Rebel Group Origins, 1946-2014 (Coups Excluded)")
+
+rm(non)
+```
+
+Next let's attach these groups to the conflicts in which they occur.
+
+```{r merge-to-conflict}
+dyad <- read_csv("ucdp_dyadic.csv")
+dyad <- subset(dyad,TypeOfConflict>2)
+colnames(groups)[1] <- "SideBID"
+dyad <- merge(dyad, groups, all.x=T, all.y=F)
+```
+
+First let's look at the number of groups over time. We can see that the average number of rebel groups per conflict is consistently around 1.5. However, there is a big spike in the early 1980s driven by Afghanistan. Restricting the analysis to only wars (1000+ fatalities in a year) doesn't not change this result.
+
+```{r total}
+#get total
+tot <- dyad %>% 
+  group_by(ConflictId, Year) %>% 
+  summarize(tot=n_distinct(SideBID))
+
+ggplot(tot, aes(x=Year, y=tot)) + geom_jitter(alpha=0.3) + geom_smooth() + theme_bw() + ggtitle("Rebel Groups Per Conflict, 1946-2014") + xlab("Total Groups")
+
+#limit to wars
+wars <- subset(dyad, IntensityLevel==2) %>% 
+  group_by(ConflictId, Year) %>% 
+  summarize(tot=n_distinct(SideBID))
+
+ggplot(wars, aes(x=Year, y=tot)) + geom_jitter(alpha=0.3) + geom_smooth() + theme_bw() + ggtitle("Rebel Groups Per Conflict, 1946-2014 (Wars Only)") + xlab("Total Groups")
+
+rm(tot, wars)
+```
+
+
+The plot of the prevalence of various group types over time paints an interesting picture. Political parties peaked as a source of rebellion around 1980, reflecting the fact that many of these parties were Marxist in orientation, and this pathway to civil war has become rare since the end of the Cold War. On the other hand, the number of splinters and alliances have steadily increased over time. This would seem to be consistent with a model of permanent, though not necessarily snowballing, rebellion. Looking at the cateogries as percentages of total rebellions in a year places the peak of party-based rebellions two decades earlier, but the same general pattern holds.
+
+```{r time series}
+ts <- dyad %>% 
+  group_by(Year, origin) %>% 
+  summarize(count=length(SideBID))
+
+ts <- ts %>% 
+  group_by(Year) %>% 
+  mutate(tot=sum(count))
+
+ggplot(ts, aes(x=Year, y=count, color=origin)) + geom_line() + theme_bw() + ylab("Count") + ggtitle("Prevalence of Rebel Group \n  Origins Over Time")
+
+ggplot(ts, aes(x=Year, y=count/tot, color=origin)) + geom_line() + theme_bw() + ylab("% Total") + ggtitle("Prevalence of Rebel Group \n  Origins Over Time (Standardized)")
+
+sub <- dyad %>% 
+  group_by(origin) %>% 
+  mutate(type.total=n_distinct(SideBID))
+
+sub <- subset(sub, type.total > 14) %>% 
+  group_by(Year, origin) %>% 
+  summarize(count=length(SideBID))
+
+sub <- sub %>%
+  group_by(Year) %>% 
+  mutate(tot=sum(count))
+
+ggplot(sub, aes(x=Year, y=count, color=origin)) + geom_line() + theme_bw() + ylab("Count") + ggtitle("Prevalence of Rebel Group Origins \n Over Time (Largest Categories)")
+
+ggplot(sub, aes(x=Year, y=count/tot, color=origin)) + geom_line() + theme_bw() + ylab("% Total") + ggtitle("Prevalence of Rebel Group Origins \n Over Time (Largest Categories, Standardized)")
+
+rm(ts,sub)
+
+```
+
+# Co-Occurrences
+
+To understand what sorts processes lead to multiple rebellions, I examine patterns of co-occurrence. First I break the UCDP conflicts into episodes - a conflict year is the start of a new episode if at least two calendar years have passed since UCDP last registered a conflict.
+
+```{r episodes}
+# Code Episodes if inactive for 2+ calendar years 
+conflict.years <- dyad %>% 
+  group_by(ConflictId,Year) %>% 
+  summarize()
+#calculate gap since last year with 25+ fatalities
+conflict.years <- conflict.years %>% 
+  group_by(ConflictId) %>% 
+  mutate(lag.year=lag(Year),start=min(Year))
+#code a new episode if there are 2 calendar years without fighting, and for first year
+conflict.years$new.ep <- ifelse(conflict.years$Year==conflict.years$start | conflict.years$Year - conflict.years$lag.year > 2, 1, 0)
+#create episode numbers
+conflict.years <- conflict.years %>% 
+  group_by(ConflictId) %>% 
+  mutate(epnum=cumsum(new.ep))
+#create conflict episode identifier
+conflict.years$ConflictEpisode <- as.factor(paste(sapply(strsplit(as.character(conflict.years$ConflictId), "-"), "[", 2),conflict.years$epnum, sep="-"))
+#remove unneeded variables and merge back into full data
+conflict.years <- subset(conflict.years,select=-c(lag.year,start))
+dyad <- merge(dyad,conflict.years,all=T)
+rm(conflict.years)
+
+#count rebel groups active in conflict year and episode, intensity
+dyad <- dyad %>% 
+  group_by(ConflictId, Year) %>% 
+  mutate(rebs.year=n_distinct(SideBID), maxint.year=max(IntensityLevel))
+
+dyad <- dyad %>% 
+  group_by(ConflictEpisode) %>% 
+  mutate(rebs.ep=n_distinct(SideBID), maxint.ep=max(IntensityLevel))
+```
+
+## 1. What type of group is most likely to be in a multi-rebel conflict?
+
+```{r type-based}
+library(knitr)
+
+type <- dyad %>% 
+  group_by(ConflictId, Year) %>% 
+  mutate(dyads=n_distinct(SideBID))
+
+type <- type %>%
+  group_by(SideBID) %>% 
+  summarize(origin=first(origin), max.dyads=max(dyads))
+
+type <- type %>%
+  group_by(origin) %>% 
+  summarize(tot=n_distinct(SideBID), multi=sum(max.dyads>1))
+
+type$pcmulti <- type$multi / type$tot * 100
+
+type <- type[order(type$pcmulti, decreasing = T), ]
+
+kable(type, col.names = c("Group Type", "Total", "In Multi-Rebel Conflict", "%"), caption = "% of Group Type involved in Multi-Rebel Conflicts")
+
+rm(type)
+```
+
+We find that some of the rarest types of organizations are the most likely to be involved in multi-rebel conflicts. Many of these make sense. Militias tend to exist for self-defense purposes, and it is perhaps not surprising that they would become involved in large conflicts. Splinters are also very likely to be involved in multi-rebel conflicts, which makes a great deal of sense.
+
+```{r type-wars}
+type <- subset(dyad, maxint.year==2) %>% 
+  group_by(ConflictId, Year) %>% 
+  mutate(dyads=n_distinct(SideBID))
+
+type <- type %>%
+  group_by(SideBID) %>% 
+  summarize(origin=first(origin), max.dyads=max(dyads))
+
+type <- type %>%
+  group_by(origin) %>% 
+  summarize(tot=n_distinct(SideBID), multi=sum(max.dyads>1))
+
+type$pcmulti <- type$multi / type$tot * 100
+
+type <- type[order(type$pcmulti, decreasing = T), ]
+
+kable(type, col.names = c("Group Type", "Total", "In Multi-Rebel Conflict", "%"), caption = "% of Group Type involved in Multi-rebel Conflicts, Wars Only")
+
+rm(type)
+```
+
+
+
+## 2. What kinds of groups are most common in multi-rebel conflict years?
+
+```{r year-based}
+years <- subset(dyad, rebs.year>1) %>% 
+  group_by(ConflictId, Year) %>% 
+  summarize(militia=sum(origin=="militia", na.rm=T),  econ.org=sum(origin=="economic organization", na.rm=T), trans.org=sum(origin=="transnational organization", na.rm=T), splinter=sum(origin=="splinter", na.rm=T), deposed=sum(origin=="deposed government", na.rm=T), alliance=sum(origin=="alliance", na.rm=T), exiles=sum(origin=="exiles/diaspora", na.rm=T), rel.org=sum(origin=="religious organization", na.rm=T), party=sum(origin=="political party", na.rm=T), student=sum(origin=="student organization", na.rm=T), foreign=sum(origin=="foreign intervention", na.rm=T), secession=sum(origin=="secessionist organization", na.rm=T), military=sum(origin=="military faction", na.rm=T), regional=sum(origin=="regional government", na.rm=T), grassroots=sum(origin=="grassroots", na.rm=T), government=sum(origin=="government faction", na.rm=T))
+
+sums <- data.frame(count=colSums(years[,3:18]))
+
+sums$pc <- sums$count / length(years$ConflictId) * 100
+
+sums <- sums[order(sums$pc,decreasing = T),]
+
+kable(sums, col.names=c("Count", "% Total"), caption="% Multi-rebel Conflict-Years w/ Group Type")
+
+rm(years, sums)
+```
+
+```{r year-based-wars}
+years <- subset(dyad, rebs.year>1 & maxint.year==2) %>% 
+  group_by(ConflictId, Year) %>% 
+  summarize(militia=sum(origin=="militia", na.rm=T),  econ.org=sum(origin=="economic organization", na.rm=T), trans.org=sum(origin=="transnational organization", na.rm=T), splinter=sum(origin=="splinter", na.rm=T), deposed=sum(origin=="deposed government", na.rm=T), alliance=sum(origin=="alliance", na.rm=T), exiles=sum(origin=="exiles/diaspora", na.rm=T), rel.org=sum(origin=="religious organization", na.rm=T), party=sum(origin=="political party", na.rm=T), student=sum(origin=="student organization", na.rm=T), foreign=sum(origin=="foreign intervention", na.rm=T), secession=sum(origin=="secessionist organization", na.rm=T), military=sum(origin=="military faction", na.rm=T), regional=sum(origin=="regional government", na.rm=T), grassroots=sum(origin=="grassroots", na.rm=T), government=sum(origin=="government faction", na.rm=T))
+
+sums <- data.frame(count=colSums(years[,3:18]))
+
+sums$pc <- sums$count / length(years$ConflictId) * 100
+
+sums <- sums[order(sums$pc,decreasing = T),]
+
+kable(sums, col.names=c("Count", "% Total"), caption="% Multi-rebel Conflict-Years w/ Group Type, Wars Only")
+
+rm(years, sums)
+```
+
+```{r episode-based}
+ep <- subset(dyad, rebs.ep>1) %>% 
+  group_by(ConflictEpisode) %>% 
+  summarize(militia=sum(origin=="militia", na.rm=T),  econ.org=sum(origin=="economic organization", na.rm=T), trans.org=sum(origin=="transnational organization", na.rm=T), splinter=sum(origin=="splinter", na.rm=T), deposed=sum(origin=="deposed government", na.rm=T), alliance=sum(origin=="alliance", na.rm=T), exiles=sum(origin=="exiles/diaspora", na.rm=T), rel.org=sum(origin=="religious organization", na.rm=T), party=sum(origin=="political party", na.rm=T), student=sum(origin=="student organization", na.rm=T), foreign=sum(origin=="foreign intervention", na.rm=T), secession=sum(origin=="secessionist organization", na.rm=T), military=sum(origin=="military faction", na.rm=T), regional=sum(origin=="regional government", na.rm=T), grassroots=sum(origin=="grassroots", na.rm=T), government=sum(origin=="government faction", na.rm=T))
+
+ep[,2:17] <- ifelse(ep[,2:17] > 0, 1, 0)
+
+sums <- data.frame(count=colSums(ep[,2:17]))
+
+sums$pc <- sums$count / length(ep$ConflictEpisode) * 100
+
+sums <- sums[order(sums$pc,decreasing = T),]
+
+kable(sums, col.names=c("Count", "% Total"), caption="% Multi-rebel Conflict-Episodes w/ Group Type")
+
+rm(ep, sums)
+```
+
+```{r episode-based-wars}
+ep <- subset(dyad, rebs.ep>1 & maxint.ep==2) %>% 
+  group_by(ConflictEpisode) %>% 
+  summarize(militia=sum(origin=="militia", na.rm=T),  econ.org=sum(origin=="economic organization", na.rm=T), trans.org=sum(origin=="transnational organization", na.rm=T), splinter=sum(origin=="splinter", na.rm=T), deposed=sum(origin=="deposed government", na.rm=T), alliance=sum(origin=="alliance", na.rm=T), exiles=sum(origin=="exiles/diaspora", na.rm=T), rel.org=sum(origin=="religious organization", na.rm=T), party=sum(origin=="political party", na.rm=T), student=sum(origin=="student organization", na.rm=T), foreign=sum(origin=="foreign intervention", na.rm=T), secession=sum(origin=="secessionist organization", na.rm=T), military=sum(origin=="military faction", na.rm=T), regional=sum(origin=="regional government", na.rm=T), grassroots=sum(origin=="grassroots", na.rm=T), government=sum(origin=="government faction", na.rm=T))
+
+ep[,2:17] <- ifelse(ep[,2:17] > 0, 1, 0)
+
+sums <- data.frame(count=colSums(ep[,2:17]))
+
+sums$pc <- sums$count / length(ep$ConflictEpisode) * 100
+
+sums <- sums[order(sums$pc,decreasing = T),]
+
+kable(sums, col.names=c("Count", "% Total"), caption="% Multi-rebel Conflict-Episodes w/ Group Type, Wars Only")
+
+rm(ep, sums)
+```
+
+## 3. What kinds of groups are correlated?
+
+```{r cors}
+library(corrplot)
+
+cors <- subset(dyad, select=c(SideBID,Year,ConflictId,ConflictEpisode,origin,rebs.year,rebs.ep))
+
+cors1 <- cors %>% 
+  group_by(ConflictId, Year) %>% 
+  summarize(militia=sum(origin=="militia", na.rm=T),  econ.org=sum(origin=="economic organization", na.rm=T), trans.org=sum(origin=="transnational organization", na.rm=T), splinter=sum(origin=="splinter", na.rm=T), deposed=sum(origin=="deposed government", na.rm=T), alliance=sum(origin=="alliance", na.rm=T), exiles=sum(origin=="exiles/diaspora", na.rm=T), rel.org=sum(origin=="religious organization", na.rm=T), party=sum(origin=="political party", na.rm=T), student=sum(origin=="student organization", na.rm=T), foreign=sum(origin=="foreign intervention", na.rm=T), secession=sum(origin=="secessionist organization", na.rm=T), military=sum(origin=="military faction", na.rm=T), regional=sum(origin=="regional government", na.rm=T), grassroots=sum(origin=="grassroots", na.rm=T), government=sum(origin=="government faction", na.rm=T))
+
+cors1 <- cor(cors1[,3:18])
+
+corrplot(cors1, method="color", type="lower", diag=F, mar=c(0,0,2.5,0), title = "Correlations b/t Origin Types \n (All Conflict Years)")
+
+#with only multi-rebel years
+cors2 <- subset(cors, rebs.year>1) %>% 
+  group_by(ConflictId, Year) %>% 
+  summarize(militia=sum(origin=="militia", na.rm=T),  econ.org=sum(origin=="economic organization", na.rm=T), trans.org=sum(origin=="transnational organization", na.rm=T), splinter=sum(origin=="splinter", na.rm=T), deposed=sum(origin=="deposed government", na.rm=T), alliance=sum(origin=="alliance", na.rm=T), exiles=sum(origin=="exiles/diaspora", na.rm=T), rel.org=sum(origin=="religious organization", na.rm=T), party=sum(origin=="political party", na.rm=T), student=sum(origin=="student organization", na.rm=T), foreign=sum(origin=="foreign intervention", na.rm=T), secession=sum(origin=="secessionist organization", na.rm=T), military=sum(origin=="military faction", na.rm=T), regional=sum(origin=="regional government", na.rm=T), grassroots=sum(origin=="grassroots", na.rm=T), government=sum(origin=="government faction", na.rm=T))
+
+cors2 <- cor(cors2[,3:18])
+
+corrplot(cors2, method="color", type="lower", diag=F, mar=c(0,0,2.5,0), title = "Correlations b/t Origin Types \n (Conflict Years w/ 2+ Rebel Groups)")
+
+#with only multi-rebel episodes
+cors3 <- subset(cors, rebs.ep>1) %>% 
+  group_by(ConflictEpisode) %>% 
+  summarize(militia=sum(origin=="militia", na.rm=T),  econ.org=sum(origin=="economic organization", na.rm=T), trans.org=sum(origin=="transnational organization", na.rm=T), splinter=sum(origin=="splinter", na.rm=T), deposed=sum(origin=="deposed government", na.rm=T), alliance=sum(origin=="alliance", na.rm=T), exiles=sum(origin=="exiles/diaspora", na.rm=T), rel.org=sum(origin=="religious organization", na.rm=T), party=sum(origin=="political party", na.rm=T), student=sum(origin=="student organization", na.rm=T), foreign=sum(origin=="foreign intervention", na.rm=T), secession=sum(origin=="secessionist organization", na.rm=T), military=sum(origin=="military faction", na.rm=T), regional=sum(origin=="regional government", na.rm=T), grassroots=sum(origin=="grassroots", na.rm=T), government=sum(origin=="government faction", na.rm=T))
+
+cors3 <- cor(cors3[,2:17])
+
+corrplot(cors3, method="color", type="lower", diag=F, mar=c(0,0,2.5,0), title = "Correlations b/t Origin Types \n (Conflict Episodes w/ 2+ Rebel Groups)")
+
+rm(cors,cors1,cors2,cors3)
+```
+
